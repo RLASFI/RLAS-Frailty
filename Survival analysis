@@ -1,0 +1,42 @@
+# Survival analysis
+
+library(survminer) # 加载包
+library(survival) # 加载包
+
+# Survival analysis
+Q <- read_excel("death_meta.xlsx",na="NA")
+
+Q <- within(Q,{
+  death <- NA
+  death[is.na(survival_time_m)] <- 0
+  death[!is.na(survival_time_m)] <- 1
+})
+
+data_km <- Q[,c("survival_time_m","death","FI_group","Age","Sex","Education","Activity"
+                            , "BMI","Smoking","Drinking")] %>% na.omit()
+rownames(data_km) <- Q$sample_id
+
+# Proportional Hazards Assumption
+fit <- coxph(Surv(survival_time_m, death) ~ FI_group+Age+Sex+BMI_group+Education+Smoking+
+               Drinking+ Activity, data = data_km)
+ph_test <- cox.zph(fit)
+ggcoxzph(ph_test) # 作图
+
+# Kaplan-Meier curves
+mymodel <- survfit(Surv(survival_time_m, death) ~ FI_group, data = data_km)
+summary(mymodel)
+
+survdiff(Surv(survival_time_m, death) ~ FI_group, data = data_km)
+
+p_KM <- ggsurvplot(mymodel, 
+           data = data_km, conf.int = F,conf.int.alpha = 0.2,
+           risk.table = F,
+           pval=T,
+           pval.coord= c(2,0.95),
+           ylim =c(0.85,1),
+            facet.by = "Age_3group",
+           legend = c(0.2,0.3), 
+           legend.title = "", 
+           ggtheme = theme_survminer(),
+           palette = c("#508786","#FAF6CA","#EA9F5F","#B52430"))
+p_KM

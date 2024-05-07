@@ -1,0 +1,170 @@
+Diverisity analysis
+
+library(vegan)
+library(pairwise comparison)
+library(ggpubr)
+
+# Alpha diversity
+alpha_vegan<-function(otu) {
+  shannon <- vegan::diversity(otu, index = "shannon")
+  simpson <- vegan::diversity(otu, index = "simpson")
+  invsimpson <- vegan::diversity(otu, index = "invsimpson")
+  richness <-  rowSums(otu > 0)
+  alpha <- data.frame(shannon,simpson,invsimpson,richness)
+  return (alpha)
+}
+
+covariate <- c("Age","Sex","BMI,"Education","Smoking","Drinking","Activity")
+alpha_species <- alpha_vegan(species[,-1])
+alpha_species$sample_id <- rownames(alpha_species)
+alpha_species <- left_join(alpha_species,
+                           metadata[,c("sample_id","FI_group",covariate)])
+
+summary(lm(richness~as.numeric(as.factor(FI_group)+Age+Sex+BMI+Education+Smoking+Drinking+Activity,alpha_species))
+summary(lm(shannon~as.numeric(as.factor(FI_group)+Age+Sex+BMI+Education+Smoking+Drinking+Activity,alpha_species))
+
+# Load data
+#clr-transformed species data
+speices_clr <- read.table("speices_clr.txt",row.names=1,dec=".",sep="\t",check.names=F) 
+# Load metadata
+metadata <- read.table("metadata.txt",row.names=1,dec=".",sep="\t",check.names=F) 
+
+dis_beta <- vegdist(speices_clr,method="euclidean")
+data <- metadata[order(match(metadata$sample_id,rownames(speices_clr))),]
+
+# Adonis test 
+adonis_result <- adonis2(dis_beta ~ FI_group, data,permutations = 999)
+adonis_result
+write.table(adonis_result$aov.tab,'beta_aitsion_adonis.tsv',sep = '\t',quote = F)
+
+#-------------------------------------------------------------------------
+#  pairwise comparison
+pairwise.adonis <- pairwise.adonis(
+    x = speices_clr, 
+    factors = data$FI_group,
+    sim.function = "vegdist", sim.method = "euclidean",
+    p.adjust.m = "none",reduce = NULL, perm = 999)
+pairwise.adonis
+
+
+#PCOA, Fig 2a
+PC <- cmdscale(vegdist(speices_clr,method = "euclidean"),  k = 3, eig = TRUE) 
+pcoa_exp <- PC$eig / sum(PC$eig)
+PC1 <- paste("PC axis1 :", round(100 * pcoa_exp[1], 2), "%")
+PC2 <- paste("PC axis2 :", round(100 * pcoa_exp[2], 2), "%")
+
+p1 <- ggplot(data = pcoa_site,
+             aes(x = pc1, y = pc2, color =FI_group)) +
+  stat_ellipse(type = "norm",level = 0.95,size=1,
+               linetype = 2, show.legend = FALSE)+  
+  scale_fill_manual(values = c("#508786","#FAF6CA","#EA9F5F","#B52430"))+
+  geom_point(size = 2, shape=16) + 
+  theme(axis.title = element_text(size = 12)) +
+  scale_color_manual(values = c("#508786","#FAF6CA","#EA9F5F","#B52430"))+
+  mytheme+
+  theme(legend.position = c(0.92,0.87),
+        legend.background = element_rect(fill = 'white', colour = 'NA'))+
+  labs(x = PC1, y = PC2,
+       color = "Frailty status") 
+
+#-------------------------------------------------------------------------
+#Boxplot
+my_comparisons = list(c('None','Mild'),c('None','Moderate'),c('None','Severe'))
+
+p2 <- ggplot(pcoa_site, aes(x = FI_group, y= pc1, fill = FI_group)) +
+  geom_boxplot() +
+  theme(panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid = element_blank(),
+        axis.text.x = element_blank(),
+        legend.position="none") +
+  xlab("") + ylab("") +
+  scale_fill_manual(values = c("#508786","#FAF6CA","#EA9F5F","#B52430"))+
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif") # 添加显著性检验
+
+p3 <- ggplot(pcoa_site, aes(x = FI_group y= pc2, fill = FI_group)) +
+  geom_boxplot(aes(),outlier.size = 0.2) +
+  theme(panel.background = element_rect(fill = "white",colour = "white"),
+        panel.grid = element_blank(),
+        axis.text.x = element_blank(),
+        legend.position="none") +
+  xlab("") + ylab("") +
+  scale_fill_manual(values = c("#508786","#FAF6CA","#EA9F5F","#B52430"))+
+  coord_flip() + # coord_flip()函数翻转坐标轴
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif")  # 添加显著性检验
+
+p <- ggarrange(p3, NULL, p1, p2, widths = c(4.5,1.5),  heights = c(1.5,4),
+                                   align = "hv",common.legend = T
+
+#-------------------------------------------------------------------------              # PERMANOVA for the factor of interest, Fig 2b
+
+permNR = 999
+print (paste0('   >> NR of premut ', permNR))
+interest_factor <- c("FI_group","Age","Sex","BMI","Drinking","Smoking","CRP","eGFR","SBP","WBC","HDLC","THypertension","Stronke")
+
+adonis_species_result_new <- c()
+for (i in c(interest_factor))) {
+  diveristy_species_meta_nomiss <- metatdata[, c("sample_id", i)] %>% na.omit()
+
+  ad <- :adonis2(species_clr[match(diveristy_species_meta_nomiss$sample_id,rownames(species_clr),]
+                       ~ diveristy_species_meta_nomiss[, i], 
+                       permutations = 999, 
+                       method = "euclidean")
+  aov_table <- ad$Df
+  # accumulate results
+  oneRow <- data.frame(Var=i,
+                       NR_nonNA=length(diveristy_species_meta_nomiss[[i]]),
+                       DF=ad$Df[1],
+                       SumsOfSqs=ad$SumOfSqs[1],
+                       FModel=ad$`F`[1],
+                       R2=ad$R2[1],
+                       pval=ad$`Pr(>F)`[1],
+                       FDR.BH=NA,
+                       Significant=NA)
+  print(oneRow)
+  adonis_species_result <- rbind.data.frame(adonis_species_result,oneRow)
+  print (paste0('--- ',i,' DONE! ---'))
+  
+  # adonis_species_result1 <- data.frame(
+  #   micro = "species_composition",
+  #   host = i,
+  #   NR_nonNA=length(diveristy_species_meta_nomiss[[i]]),
+  #   adonis_total = adonis_total["alpha_species_meta_nomiss[, i]", "Pr(>F)"],
+  #   r2_total = adonis_total["alpha_species_meta_nomiss[, i]", "R2"],
+  #   FDR.BH=NA,
+  #   Significant=NA)
+  
+}
+
+print (' >> DONE WITH UNIVARIATE ADONIS CALCULATIONS')
+
+adonis_species_result
+# adonis_species_result$FDR.BH=p.adjust(adonis_species_result$pval, method = "BH")
+#adonis_species_result$Significant="No"
+adonis_species_result$Significant[adonis_species_result$pval<0.05]="*" ##p<0.05
+
+write.csv(adonis_species_result,file = "adonis_species_result.csv",row.names = F)
+
+# Lollipop chart 
+beta_var_results_plot <- read.csv("adonis_species_result_plot.csv")
+colnames(beta_var_results_plot)
+beta_var_results_plot$Group <- factor(beta_var_results_plot$Group,
+                                      levels = rev(c("Frailty", "Demographic", "Lifestyle","Clinical traits","Disease")))
+
+ggdotchart(beta_var_results_plot, x = "Var", y = "R2",
+           color = "Group",
+           #group = "Group",
+           label = beta_var_results_plot$Significant,
+           font.label = list(color = "black", size = 10,
+                             vjust = -1.2), 
+           sorting = "descending",
+           add = "segments",
+           #rotate = TRUE,
+           dot.size = 6,
+           legend = "bottom",
+           xlab = "",
+           ylab = "Variance explained %",
+           palette = rev(c("darkred","darkgreen","orange","#95B3D8","pink")),
+           ggtheme = theme_pubr()   
+)
+
+

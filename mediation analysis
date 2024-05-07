@@ -1,0 +1,86 @@
+
+Mediation analysis, R code, for example:
+library(mediation)
+library(MASS)
+
+Q <- read.table("Mediation_data.txt",sep="\t",header=T,row.names=1)
+
+mediation_lm_bio <- c() 
+for (i in 1:length(microbiota)) {  
+  for (j in 1:length(traits){
+    microb <- microbiota[i] #microbial feature
+    
+    x <- traits[j]      
+    y <-"FI_group" # outcome
+    
+    print(microb)
+    print(x)
+    
+    mediation_microb1 <- mediation_data[,c(covariate,x,y,microb)]
+
+    model.a <- lm(get(x)~get(microb)+ Age+ Sex+ BMI +Smoking+Education+Drinking+Activity, mediation_microb1) 
+    model.b <- lm(as.numeric(as.factor(get(y)))~get(microb)+Age+Sex+BMI+Smoking+Education+Drinking+Activity, mediation_microb1) 
+    model.y <- lm(as.numeric(as.factor(get(y)))~get(x)+get(microb)+Age+Sex+BMI+Smoking+Education+Drinking+Activity, mediation_microb1)
+    
+    summary <- summary(mediate(model.a, model.y, treat = "get(microb)", 
+                                          mediator = "get(x)",sims = 1000))
+    
+    result_mediation1 <- c(microb,x, y,
+                           summary$d0,paste0(round(summary$d0.ci[1],4),"~",round(summary$d0.ci[2],4)),summary$d0.p,
+                           summary$z0,paste0(round(summary$z0.ci[1],4),"~",round(summary$z0.ci[2],4)),summary$z0.p,
+                           summary$tau.coef,paste0(round(summary$tau.ci[1],4),"~",round(summary$tau.ci[2],4)),summary$tau.p,
+                           summary$n0,paste0(round(summary$n0.ci[1],4),"~",round(summary$n0.ci[2],4)),summary$n0.p,
+                           "Prop.mediated","Prop.mediated_CI","Prop.mediated_P"
+    )
+    mediation_lm_bio <- data.frame(rbind(mediation_lm_bio,result_mediation1))
+  }
+  
+  colnames(mediation_lm_bio) <- c("microbial", "trairs","outcome",
+                                  "ACME","ACME_CI","ACME_P",
+                                  "ADE","ADE_CI","ADE_P",
+                                  "Total effect","Total effect_CI","Total effect_P",
+                                  "Prop.mediated","Prop.mediated_CI","Prop.mediated_P")
+  
+}
+mediation_lm_bio <- mediation_lm_bio[,1:15]
+write.csv(mediation_lm_bio,"mediation_results.csv",row.names = F)
+
+
+### Figure: sanky plot lm----
+mediation_lm_plot <- mediation_lm_bio[,c(1:15,19)]      
+
+sanky_data <- mediation_lm_plot[,1:3]
+sanky_data$count <- 1
+
+variable_group <- read_excel("rg_variable.xlsx")
+
+sanky_data <- sanky_data %>% left_join(variable_name[,c("variable","clinical_classification")],
+                                       by=c("clinic"="variable"))
+sanky_data <- sanky_data %>% arrange(clinical_classification)
+sanky_data$clinic1 <- paste0(sanky_data$clinical_classification,"-",sanky_data$clinic)
+
+
+#mycol3 <- colorRampPalette(c('#00abef','#64b036','#ffe743','#64b036','#00abef'))(36) #渐变色
+sanky <- ggplot(sanky_data,
+                aes(axis1 = microbial, 
+                    axis2 = traits, 
+                    axis3 = outcome,
+                    y= count)) +
+  scale_x_discrete(limits = c("Microbial", "Clinical trait", "Frailty"),
+                   expand = c(.1, .05)) +
+  geom_alluvium(aes(fill = clinical_classification)) +
+  #scale_fill_manual(v) +
+  geom_stratum(width = 0.68,alpha = .25) + 
+  geom_text(stat = "stratum",
+            aes(label = after_stat(stratum))) +
+  theme_bw() +
+  theme(panel.grid =element_blank()) +
+  theme(panel.border = element_blank()) +
+  theme(axis.line = element_blank(),
+        axis.ticks =element_blank(),axis.text.y =element_blank())+
+  guides(fill = "none")+
+  scale_fill_nejm()+
+  ggtitle("Mediation analysis (Total)") # output size 16*10
+
+sanky
+ggsave("Results/sanky_mediation.pdf",sanky, width = 12,height = 8)
