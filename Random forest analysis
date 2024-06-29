@@ -1,0 +1,71 @@
+Random forest analysis, R code, for example:
+
+species_rfdata <- read.table("species_rfdata.txt",sep="\t",header=T,row.names=1)
+
+library(caret)
+library(pROC)
+
+# for binary outcomes-----
+# Create vectors to save cv and test AUC values for every data-split
+results_total <- data.frame()
+test_aucs <- c()
+cv_aucs <- c()
+
+# Do the 80-20 data-split
+set.seed(1234)
+train_index <- createDataPartition(species_rfdata$group, p = 0.8, list = FALSE) 
+## species_rfdata: dataset for the model, including omics data and disease status (binary)
+train_set <- species_rfdata[train_index, ]
+test_set <- species_rfdata[-train_index, ]
+
+# cv index to make sure the internal 5-folds are stratified for diagnosis classes and also resampled 100 times.
+folds <- 5
+cvIndex <- createMultiFolds(factor(train_set$group), folds, times = 100)
+
+trControl <- trainControl(
+  method = "repeatedcv",
+  number = folds,
+  index = cvIndex,
+  returnResamp = "final",
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  indexFinal = NULL,
+  # seeds = seeds,
+  savePredictions = TRUE
+)
+
+# find the best mtry through grid search
+mtry <- floor(seq(1, (ncol(train_set) - 1) / 3, length = 6))
+tuneGrid <- expand.grid(mtry = mtry)
+set.seed(1234)
+trained_model <- train(GDM ~ .,
+                       data = train_set,
+                       method = "rf",
+                       metric = "ROC",
+                       tuneGrid = tuneGrid,
+                       # preProc=c("center", "scale"),
+                       trControl = trControl,
+                       ntree = 500,
+                       importance = TRUE,
+                       na.action = na.omit
+)
+imp_Species <- trained_model$finalModel$importance %>% as.data.frame()
+imp_Species$feature <- rownames(imp_Species)
+imp_Species <- imp_Species %>% arrange(desc(MeanDecreaseAccuracy)) # output 1
+
+# Mean AUC value over repeats of the best cost parameter during training
+cv_auc <- getTrainPerf(trained_model)$TrainROC
+
+# Predict on the test set and get predicted probabilities
+ROC_Species <- roc(ifelse(test_set$group == "Case", 1, 0), predict(trained_model, test_set, type = "prob")[[1]]) # output 2
+
+# visulization
+roc_plot <- ggroc(list(T1_species = imp_Species),
+                  size = 1
+) +
+  geom_segment(aes(x = 0, xend = 1, y = 1, yend = 0), col = "darkgrey", linetype = "dashed") +
+  theme_bw() +
+  ggsci::scale_color_lancet()
+roc_plot
+
+paste0(round(auc(ROC_Species)[1], 3), " (", round(ci(ROC_Species)[1], 3), "~", round(ci(ROC_Species)[3], 3), ")")
